@@ -5,6 +5,8 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
 using System.IO;
+using System.Linq;
+using HID_Demo;
 
 namespace HIDInterface
 {
@@ -89,12 +91,37 @@ namespace HIDInterface
             ref HIDP_CAPS myPHIDP_CAPS);				// OUT PHIDP_CAPS  Capabilities
 
         [DllImport("hid.dll", SetLastError = true)]
+        private static extern uint HidP_GetSpecificButtonCaps(
+            HIDP_REPORT_TYPE ReportType,
+            uint UsagePage,
+            ushort LinkCollection,
+            uint Usage,
+            IntPtr ButtonCaps,
+            ref ushort ButtonCapsLength,
+            IntPtr pPHIDP_PREPARSED_DATA
+            );
+
+        [DllImport("hid.dll", CharSet = CharSet.Auto)]
+        private static extern int HidP_GetButtonCaps(
+            HIDP_REPORT_TYPE ReportType,
+            ref HIDP_BUTTON_CAPS ButtonCaps,
+            ref ushort ButtonCount,
+            IntPtr pPHIDP_PREPARSED_DATA
+            );
+
+        [DllImport("hid.dll", SetLastError = true)]
+        private static extern int HidP_GetLinkCollectionNodes(
+            IntPtr LinkCollectionNodes,
+            ref uint LinkCollectionNodesLength,
+            IntPtr pPHIDP_PREPARSED_DATA);
+
+        [DllImport("hid.dll", SetLastError = true)]
         private static extern Boolean HidD_GetAttributes(SafeFileHandle hObject, ref HIDD_ATTRIBUTES Attributes);
 
         [DllImport("hid.dll", SetLastError = true, CallingConvention = CallingConvention.StdCall)]
-        private static extern bool HidD_GetFeature(
+        private static extern byte HidD_GetFeature(
            IntPtr hDevice,
-           IntPtr hReportBuffer,
+           byte[] buffer,
            uint ReportBufferLength);
 
         [DllImport("hid.dll", SetLastError = true, CallingConvention = CallingConvention.StdCall)]
@@ -159,6 +186,70 @@ namespace HIDInterface
             public System.UInt16 NumberFeatureButtonCaps;
             public System.UInt16 NumberFeatureValueCaps;
             public System.UInt16 NumberFeatureDataIndices;
+        }
+
+        public enum HIDP_REPORT_TYPE
+        {
+            HidP_Input,
+            HidP_Output,
+            HidP_Feature
+        }
+
+        public struct ButtonCapsRange
+        {
+            public ushort UsageMin;
+            public ushort UsageMax;
+            public ushort StringMin;
+            public ushort StringMax;
+            public ushort DesignatorMin;
+            public ushort DesignatorMax;
+            public ushort DataIndexMin;
+            public ushort DataIndexMax;
+        }
+
+        public struct ButtonCapsNotRange
+        {
+            public ushort Usage;
+            public ushort Reserved1;
+            public ushort StringIndex;
+            public ushort Reserved2;
+            public ushort DesignatorIndex;
+            public ushort Reserved3;
+            public ushort DataIndex;
+            public ushort Reserved4;
+        }
+
+        [StructLayout(LayoutKind.Explicit)]
+        public struct HIDP_BUTTON_CAPS
+        {
+            [FieldOffset(0)]
+            public ushort UsagePage;
+            [FieldOffset(2)]
+            public byte ReportID;
+            [FieldOffset(3)]
+            public byte IsAlias;
+            [FieldOffset(4)]
+            public ushort BitField;
+            [FieldOffset(6)]
+            public ushort LinkCollection;
+            [FieldOffset(8)]
+            public ushort LinkUsage;
+            [FieldOffset(10)]
+            public ushort LinkUsagePage;
+            [FieldOffset(12)]
+            public byte IsRange;
+            [FieldOffset(13)]
+            public byte IsStringRange;
+            [FieldOffset(14)]
+            public byte IsDesignatorRange;
+            [FieldOffset(15)]
+            public byte IsAbsolute;
+            [FieldOffset(16)]
+            public uint[] Reserved;
+            [FieldOffset(16 + 10 * 4)]
+            public ButtonCapsRange Range;
+            [FieldOffset(16 + 10 * 4)]
+            public ButtonCapsNotRange NotRange;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -376,6 +467,9 @@ namespace HIDInterface
             handle_write = CreateFile(devicePath, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
                 IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
 
+            /*handle_feature = CreateFile(devicePath, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);*/
+
             //get capabilites - use getPreParsedData, and getCaps
             //store the reportlengths
             IntPtr ptrToPreParsedData = new IntPtr();
@@ -387,6 +481,24 @@ namespace HIDInterface
             HIDD_ATTRIBUTES attributes = new HIDD_ATTRIBUTES();
             bool hidAttribSucsess = HidD_GetAttributes(handle_read, ref attributes);
 
+            var count = capabilities.NumberInputButtonCaps;
+            //var buttons1 = new HidData.HIDP_DATA_CAPS[1];
+            //var hidButtonCapsSuccess = HidData.HidP_GetButtonCaps(HIDP_REPORT_TYPE.HidP_Input, buttons1, ref count, ptrToPreParsedData);
+
+            var buttons2 = new HIDP_BUTTON_CAPS();
+            var hidStatus = HidP_GetButtonCaps(HIDP_REPORT_TYPE.HidP_Input, ref buttons2, ref count, ptrToPreParsedData);
+
+            /*do
+            {
+                var buf = new byte[capabilities.FeatureReportByteLength];
+                buf[0] = 0x14;
+                var status = HidD_GetFeature(handle_read.DangerousGetHandle(), buf, capabilities.FeatureReportByteLength);
+
+                Console.SetCursorPosition(0, 0);
+                WriteData(buf, 16);
+
+            } while (true);*/
+
             string productName = "";
             string SN = "";
             string manfString = "";
@@ -394,6 +506,9 @@ namespace HIDInterface
             if (HidD_GetProductString(handle_read, buffer, 126)) productName = Marshal.PtrToStringAuto(buffer);
             if (HidD_GetSerialNumberString(handle_read, buffer, 126)) SN = Marshal.PtrToStringAuto(buffer);
             if (HidD_GetManufacturerString(handle_read, buffer, 126)) manfString = Marshal.PtrToStringAuto(buffer);
+
+            //HidP_GetCaps()
+
             Marshal.FreeHGlobal(buffer);
 
             //Call freePreParsedData to release some stuff
@@ -410,7 +525,7 @@ namespace HIDInterface
             productInfo.devicePath = devicePath;
             productInfo.manufacturer = manfString;
             productInfo.product = productName;
-            productInfo.serialNumber = Convert.ToInt32(SN);
+           // productInfo.serialNumber = string.IsNullOrEmpty(SN) ? -1 : Convert.ToInt32(SN);
             productInfo.PID = (ushort)attributes.ProductID;
             productInfo.VID = (ushort)attributes.VendorID;
             productInfo.versionNumber = (ushort)attributes.VersionNumber;
@@ -418,12 +533,42 @@ namespace HIDInterface
             productInfo.OUT_reportByteLength = (int)capabilities.OutputReportByteLength;
 
             //use a filestream object to bring this stuff into .NET
-            FS_read = new FileStream(handle_read, FileAccess.ReadWrite, capabilities.OutputReportByteLength, false);
-            FS_write = new FileStream(handle_write, FileAccess.ReadWrite, capabilities.InputReportByteLength, false);
+            if (capabilities.OutputReportByteLength > 0)
+                FS_write = new FileStream(handle_write, FileAccess.ReadWrite, capabilities.OutputReportByteLength, false);
+
+            FS_read = new FileStream(handle_read, FileAccess.ReadWrite, capabilities.InputReportByteLength, false);
 
             this.useAsyncReads = useAsyncReads;
             if (useAsyncReads)
                 readAsync();
+        }
+
+        private T[][] Split<T>(T[] data, int arrayCount)
+        {
+            var result = new T[(int)Math.Ceiling((decimal)data.Length / arrayCount)][];
+            for (var i = 0; i < result.Length; i++)
+            {
+                result[i] = new T[arrayCount];
+                for (var j = 0; j < arrayCount; j++)
+                {
+                    var index = i * arrayCount + j;
+                    result[i][j] = index >= data.Length ? default(T) : data[index];
+                }
+            }
+
+            return result;
+        }
+
+        private void WriteData(byte[] data, int splitCount = -1)
+        {
+            var splitData = Split(data, splitCount < 0 ? data.Length : splitCount);
+            Console.WriteLine(string.Join("\n", splitData.Select(arr => $"{string.Join("|", arr.Select(v => Convert.ToString(v, 16).PadLeft(2, '-')).ToArray())}").ToArray()));
+            Console.WriteLine();
+
+            // var x = BitConverter.ToInt16(new byte[] {data[15], data[14]}, 0);
+            //var y = BitConverter.ToInt16(new byte[] {10 , 0 }, 0);
+
+            //Console.WriteLine("{0} : {1}, {2}", x, data[14], data[15]);
         }
 
         public void close()

@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using HIDInterface;
 
 namespace HID_Demo
@@ -42,7 +43,7 @@ namespace HID_Demo
 
             //Arbitrarily select one of the devices which we found in the previous step
             //record the details of this device to be used in the class constructor
-            int selectedDeviceIndex = 0;
+            int selectedDeviceIndex = 2;
             ushort VID = devices[selectedDeviceIndex].VID;
             ushort PID = devices[selectedDeviceIndex].PID;
             int SN = devices[selectedDeviceIndex].serialNumber;
@@ -58,15 +59,53 @@ namespace HID_Demo
 
             //Write some data to the device (the write method throws an exception if the data is longer than the report length
             //specified by the device, this length can be found in the HIDDevice.interfaceDetails struct)
-            byte[] writeData = { 0x00, 0x01, 0x02, 0x03, 0x04 };
-            device.write(writeData);    //Its that easy!!
+            //byte[] writeData = { 0x00, 0x01, 0x02, 0x03, 0x04 };
+            //device.write(writeData);    //Its that easy!!
 
             //Read some data synchronously from the device. This method blocks the calling thread until the data
             //is returned. This takes 1-20ms for most HID devices
-            byte[] readData = device.read();    //again, that easy!
+
+            while (true)
+            {
+                byte[] readData = device.read();    //again, that easy!
+                WriteData(readData);
+                var key = Console.ReadKey();
+                if (key.Key == ConsoleKey.Escape)
+                {
+                    break;
+                }
+            }
 
             //close the device to release all handles etc
             device.close();
+        }
+
+        private void WriteData(byte[] data, int splitCount = -1)
+        {
+            var splitData = Split(data, splitCount < 0 ? data.Length : splitCount);
+            Console.WriteLine(string.Join("\n", splitData.Select(arr => $"{string.Join("|", arr.Select(v => Convert.ToString(v, 16).PadLeft(2, '-')).ToArray())}").ToArray()));
+            Console.WriteLine();
+
+           // var x = BitConverter.ToInt16(new byte[] {data[15], data[14]}, 0);
+            //var y = BitConverter.ToInt16(new byte[] {10 , 0 }, 0);
+
+            //Console.WriteLine("{0} : {1}, {2}", x, data[14], data[15]);
+        }
+
+        private T[][] Split<T>(T[] data, int arrayCount)
+        {
+            var result = new T[(int)Math.Ceiling((decimal)data.Length / arrayCount)][];
+            for (var i = 0; i < result.Length; i++)
+            {
+                result[i] = new T[arrayCount];
+                for (var j = 0; j < arrayCount; j++)
+                {
+                    var index = i * arrayCount + j;
+                    result[i][j] = index >= data.Length ? default(T) : data[index];
+                }
+            }
+
+            return result;
         }
 
         public void startAsyncOperation()
@@ -76,11 +115,19 @@ namespace HID_Demo
 
             //Arbitrarily select one of the devices which we found in the previous step
             //record the details of this device to be used in the class constructor
-            int selectedDeviceIndex = 0;
-            ushort VID = devices[selectedDeviceIndex].VID;
-            ushort PID = devices[selectedDeviceIndex].PID;
-            int SN = devices[selectedDeviceIndex].serialNumber;
-            string devicePath = devices[selectedDeviceIndex].devicePath;
+            var devicePath = devices.FirstOrDefault(dev => dev.manufacturer.Contains("Sony") ||
+                                                           dev.product.Contains("Xbox") || 
+                                                           dev.manufacturer.Contains("Nintendo")).devicePath;
+            if (string.IsNullOrEmpty(devicePath))
+            {
+                Console.WriteLine("Devices not found. Application will be closed...");
+                Console.ReadKey();
+                return;
+            }
+            //ushort VID = devices[selectedDeviceIndex].VID;
+            //ushort PID = devices[selectedDeviceIndex].PID;
+            //int SN = devices[selectedDeviceIndex].serialNumber;
+            //string devicePath = devices[selectedDeviceIndex].devicePath;
 
             //create a handle to the device by calling the constructor of the HID class
             //This can be done using either the VID/PID/Serialnumber, or the device path (string) 
@@ -96,21 +143,51 @@ namespace HID_Demo
             //Write some data to the device (the write method throws an exception if the data is longer than the report length
             //specified by the device, this length can be found in the HIDDevice.interfaceDetails struct)
             //The write method is identical to the synchronous mode of operation
-            byte[] writeData = { 0x00, 0x01, 0x02, 0x03, 0x04 };
-            device.write(writeData);    //Its that easy!!
+            //byte[] writeData = { 0x00, 0x01, 0x02, 0x03, 0x04 };
+            //device.write(writeData);    //Its that easy!!
 
             //Send your program off to do other stuff here, wait for UI events etc
             //When a report occurs, the device_dataReceived(byte[] message) method will be called
-            System.Threading.Thread.Sleep(100);
+            //System.Threading.Thread.Sleep(100);
+
+            const int limit = 10000;
+            while (true)
+            {
+                //var x = Console.ReadKey();
+                //if (x.Key == ConsoleKey.Escape)
+                //{
+                //    break;
+                //}
+                //else
+                //{
+                //    Console.Clear();
+                //}
+
+                lock (_curMessage)
+                {
+                    Console.SetCursorPosition(0, 0);
+                    WriteData(_curMessage, 16);
+                }
+            }
 
             //close the device to release all handles etc
             device.close();
         }
 
         //Whenever a report comes in, this method will be called and the data will be available! Like magic...
+
+
+        private byte[] _curMessage = new byte[64];
         void device_dataReceived(byte[] message)
         {
-            //Do something with the data here...
+            //System.Threading.Thread.Sleep(10);
+            lock (_curMessage)
+            {
+                _curMessage = message.ToArray();
+            }
+            
+            //System.Threading.Thread.Sleep(10);
+            //Console.Clear();
         }
     }
 }
