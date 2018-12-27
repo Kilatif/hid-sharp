@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using HIDInterface;
+using HID_Demo.Packets;
 
 namespace HID_Demo
 {
@@ -108,86 +110,51 @@ namespace HID_Demo
             return result;
         }
 
+        private byte[] _curMessage = new byte[32];
+        private void Reciver(byte[] buffer, int joyConId)
+        {
+            lock (_curMessage)
+            {
+                Array.Copy(buffer, 0, _curMessage, 16 * joyConId, 16);
+                Console.SetCursorPosition(0, 0);
+                WriteData(_curMessage, 16);
+            }
+        }
+
         public void startAsyncOperation()
         {
             //Get the details of all connected USB HID devices
             HIDDevice.interfaceDetails[] devices = HIDDevice.getConnectedDevices();
 
-            //Arbitrarily select one of the devices which we found in the previous step
-            //record the details of this device to be used in the class constructor
-            var devicePath = devices.FirstOrDefault(dev => dev.manufacturer.Contains("Sony") ||
-                                                           dev.product.Contains("Xbox") || 
-                                                           dev.manufacturer.Contains("Nintendo")).devicePath;
-            if (string.IsNullOrEmpty(devicePath))
-            {
-                Console.WriteLine("Devices not found. Application will be closed...");
-                Console.ReadKey();
-                return;
-            }
-            //ushort VID = devices[selectedDeviceIndex].VID;
-            //ushort PID = devices[selectedDeviceIndex].PID;
-            //int SN = devices[selectedDeviceIndex].serialNumber;
-            //string devicePath = devices[selectedDeviceIndex].devicePath;
+            var joyConsDevices = devices.Where(dev => dev.manufacturer.Contains("Sony") ||
+                                                      dev.product.Contains("Xbox") ||
+                                                      dev.manufacturer.Contains("Nintendo"))
+                .OrderBy(dev => dev.PID).Select(dev => new HIDDevice(dev.devicePath, true)).ToList();
 
-            //create a handle to the device by calling the constructor of the HID class
-            //This can be done using either the VID/PID/Serialnumber, or the device path (string) 
-            //all of these details are available from the HIDDevice.interfaceDetails[] struct array created above
-            //The "true" boolean in the constructor tells the class we want asynchronous operation this time
-            HIDDevice device = new HIDDevice(devicePath, true);
-            //OR, the normal usage when you know the VID and PID of the device
-            //HIDDevice device = new HIDDevice(VID, PID, (ushort)SN, true);
+            for (var i = 0; i < joyConsDevices.Count; i++)
+            {
+                var ii = i;
+                joyConsDevices[i].dataReceived += buf => Reciver(buf, ii);
+            }
+
+            Console.ReadKey();
+
+            foreach (var device in joyConsDevices)
+            {
+                var output = new byte[49];
+                var buffer = new byte[] { 0x01, 0x01, 0x00, 0x01, 0x40, 0x40, 0x00, 0x01, 0x40, 0x40, 0x03, 0x30 };
+                Array.Copy(buffer, output, buffer.Length);
+
+                device.write(output);
+            }
             
-            //next create the event handler for the incoming reports
-            device.dataReceived += new HIDDevice.dataReceivedEvent(device_dataReceived);
-
-            //Write some data to the device (the write method throws an exception if the data is longer than the report length
-            //specified by the device, this length can be found in the HIDDevice.interfaceDetails struct)
-            //The write method is identical to the synchronous mode of operation
-            //byte[] writeData = { 0x00, 0x01, 0x02, 0x03, 0x04 };
-            //device.write(writeData);    //Its that easy!!
-
-            //Send your program off to do other stuff here, wait for UI events etc
-            //When a report occurs, the device_dataReceived(byte[] message) method will be called
-            //System.Threading.Thread.Sleep(100);
-
-            const int limit = 10000;
-            while (true)
-            {
-                //var x = Console.ReadKey();
-                //if (x.Key == ConsoleKey.Escape)
-                //{
-                //    break;
-                //}
-                //else
-                //{
-                //    Console.Clear();
-                //}
-
-                lock (_curMessage)
-                {
-                    Console.SetCursorPosition(0, 0);
-                    WriteData(_curMessage, 16);
-                }
-            }
+            Console.ReadKey();
 
             //close the device to release all handles etc
-            device.close();
-        }
-
-        //Whenever a report comes in, this method will be called and the data will be available! Like magic...
-
-
-        private byte[] _curMessage = new byte[64];
-        void device_dataReceived(byte[] message)
-        {
-            //System.Threading.Thread.Sleep(10);
-            lock (_curMessage)
+            foreach (var device in joyConsDevices)
             {
-                _curMessage = message.ToArray();
+                device.close();
             }
-            
-            //System.Threading.Thread.Sleep(10);
-            //Console.Clear();
         }
     }
 }

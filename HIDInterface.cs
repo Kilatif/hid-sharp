@@ -592,12 +592,12 @@ namespace HIDInterface
                 throw new Exception("Output report must not exceed " + (capabilities.OutputReportByteLength - 1).ToString() + " bytes");
 
             //uint numBytesWritten = 0;
-            byte[] packet = new byte[capabilities.OutputReportByteLength];
+            /*byte[] packet = new byte[capabilities.OutputReportByteLength];
             Array.Copy(data, 0, packet, 1, data.Length);            //start at 1, as the first byte must be zero for HID report
-            packet[0] = 0;
+            packet[0] = 0;*/
 
             if (FS_write.CanWrite)
-                FS_write.Write(packet, 0, packet.Length);
+                FS_write.Write(data, 0, data.Length);
             else
                 throw new Exception("Filestream unable to write");
         }
